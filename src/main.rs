@@ -1,12 +1,13 @@
 use std::{
     collections::HashMap,
+    env,
     fs::{File, read_dir},
     io::Result,
     path::{Path, PathBuf},
+    process::exit,
 };
 use xml::{EventReader, reader::XmlEvent};
 
-#[derive(Debug)]
 struct Lexer<'a> {
     content: &'a [char],
 }
@@ -63,10 +64,6 @@ impl<'a> Iterator for Lexer<'a> {
     }
 }
 
-fn index_document(content: &str) -> HashMap<String, usize> {
-    todo!("not implemented");
-}
-
 fn read_entire_xml_file<P: AsRef<Path>>(file_path: P) -> Result<String> {
     let file = File::open(file_path)?;
     let event_reader = EventReader::new(file);
@@ -84,8 +81,7 @@ fn read_entire_xml_file<P: AsRef<Path>>(file_path: P) -> Result<String> {
 type TermFreq = HashMap<String, usize>;
 type TermFreqIndex = HashMap<PathBuf, TermFreq>;
 
-fn main() -> Result<()> {
-    let index_path = "index.json";
+fn check_index(index_path: &str) -> Result<()> {
     let index_file = File::open(index_path)?;
     println!("Reading {index_path} index file...");
     let tf_index: TermFreqIndex = serde_json::from_reader(index_file).expect("serde works fine");
@@ -97,8 +93,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn main2() -> Result<()> {
-    let dir_path = "docs.gl/gl4";
+fn index_folder(dir_path: &str) -> Result<()> {
     let dir = read_dir(dir_path)?;
     let mut term_freq_index = TermFreqIndex::new();
 
@@ -138,4 +133,41 @@ fn main2() -> Result<()> {
     serde_json::to_writer(index_file, &term_freq_index).expect("serde works fine");
 
     Ok(())
+}
+
+fn main() {
+    let mut args = env::args();
+    let program = args.next().expect("path to program is provided");
+
+    let subcommand = args.next().unwrap_or_else(|| {
+        println!("ERROR: no subcommand is provided");
+        exit(1);
+    });
+
+    match subcommand.as_str() {
+        "index" => {
+            let dir_path = args.next().unwrap_or_else(|| {
+                println!("ERROR: no directory is provided from {subcommand} subsommand");
+                exit(1);
+            });
+            index_folder(&dir_path).unwrap_or_else(|err| {
+                println!("ERROR: could not index folder {dir_path}: {err}");
+                exit(1);
+            });
+        }
+        "search" => {
+            let index_path = args.next().unwrap_or_else(|| {
+                println!("ERROR: no path to index is provided for {subcommand} subcommand");
+                exit(1);
+            });
+            check_index(&index_path).unwrap_or_else(|err| {
+                println!("ERROR: could not check index file {index_path}: {err}");
+                exit(1);
+            });
+        }
+        _ => {
+            println!("ERROR: unknown subsommand {subcommand}");
+            exit(1);
+        }
+    }
 }
