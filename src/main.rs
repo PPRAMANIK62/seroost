@@ -3,6 +3,7 @@ use std::{
     env,
     fs::{File, read_dir},
     path::{Path, PathBuf},
+    process::ExitCode,
 };
 use xml::{
     EventReader,
@@ -173,17 +174,30 @@ fn term_frequency_index_of_folder(dir_path: &str) -> Result<TermFreqIndex, ()> {
     Ok(term_freq_index)
 }
 
-fn main() -> Result<(), ()> {
+fn usage(program: &str) {
+    eprintln!("Usage: {program} [subcommand] [OPTIONS]");
+    eprintln!("Subcommands:");
+    eprintln!(
+        "    index <folder>         index the <folder> and save the index to index.json file"
+    );
+    eprintln!(
+        "    search <index_file>    check how many documents are indexed in the file (searching is not implemented yet)"
+    );
+}
+
+fn entry() -> Result<(), ()> {
     let mut args = env::args();
     let program = args.next().expect("path to program is provided");
 
     let subcommand = args.next().ok_or_else(|| {
+        usage(&program);
         println!("ERROR: no subcommand is provided");
     })?;
 
     match subcommand.as_str() {
         "index" => {
             let dir_path = args.next().ok_or_else(|| {
+                usage(&program);
                 println!("ERROR: no directory is provided from {subcommand} subsommand");
             })?;
             let tf_index = term_frequency_index_of_folder(&dir_path)?;
@@ -191,15 +205,24 @@ fn main() -> Result<(), ()> {
         }
         "search" => {
             let index_path = args.next().ok_or_else(|| {
+                usage(&program);
                 println!("ERROR: no path to index is provided for {subcommand} subcommand");
             })?;
             check_index(&index_path)?;
         }
         _ => {
+            usage(&program);
             println!("ERROR: unknown subsommand {subcommand}");
             return Err(());
         }
     }
 
     Ok(())
+}
+
+fn main() -> ExitCode {
+    match entry() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(()) => ExitCode::FAILURE,
+    }
 }
