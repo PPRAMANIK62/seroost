@@ -164,10 +164,6 @@ fn term_frequency_index_of_folder(dir_path: &str) -> Result<TermFreqIndex, ()> {
             }
         }
 
-        let mut stats = term_frequency.iter().collect::<Vec<_>>();
-        stats.sort_by_key(|(_, f)| *f);
-        stats.reverse();
-
         term_freq_index.insert(file_path, term_frequency);
     }
 
