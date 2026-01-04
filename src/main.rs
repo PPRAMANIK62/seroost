@@ -69,7 +69,7 @@ impl<'a> Iterator for Lexer<'a> {
 
 fn parse_entire_xml_file(file_path: &Path) -> Result<String, ()> {
     let file = File::open(file_path).map_err(|err| {
-        eprint!(
+        eprintln!(
             "ERROR: could not open file {file_path}: {err}",
             file_path = file_path.display()
         )
@@ -81,7 +81,7 @@ fn parse_entire_xml_file(file_path: &Path) -> Result<String, ()> {
         let event = event.map_err(|err| {
             let TextPosition { row, column } = err.position();
             let msg = err.msg();
-            eprint!(
+            eprintln!(
                 "{file_path}:{row}:{column}: ERROR: {msg}",
                 file_path = file_path.display()
             );
@@ -102,9 +102,9 @@ fn check_index(index_path: &str) -> Result<(), ()> {
     println!("Reading {index_path} index file...");
 
     let index_file = File::open(index_path)
-        .map_err(|err| eprint!("ERROR: could not open index file {index_path}: {err}"))?;
+        .map_err(|err| eprintln!("ERROR: could not open index file {index_path}: {err}"))?;
     let tf_index: TermFreqIndex = serde_json::from_reader(index_file)
-        .map_err(|err| eprint!("ERROR: could not parse index file {index_path}: {err}"))?;
+        .map_err(|err| eprintln!("ERROR: could not parse index file {index_path}: {err}"))?;
     println!(
         "{index_path} contains {count} files",
         count = tf_index.len()
@@ -117,30 +117,43 @@ fn save_term_frequency_index(tf_index: &TermFreqIndex, index_path: &str) -> Resu
     println!("Saving {index_path}...");
 
     let index_file = File::create(index_path).map_err(|err| {
-        eprint!("ERROR: could not create index file {index_path}: {err}");
+        eprintln!("ERROR: could not create index file {index_path}: {err}");
     })?;
 
     serde_json::to_writer(index_file, &tf_index).map_err(|err| {
-        eprint!("ERROR: could not serialize index into file {index_path}: {err}");
+        eprintln!("ERROR: could not serialize index into file {index_path}: {err}");
     })?;
 
     Ok(())
 }
 
-fn term_frequency_index_of_folder(dir_path: &str) -> Result<TermFreqIndex, ()> {
+fn term_frequency_index_of_folder(dir_path: &Path, tf_index: &mut TermFreqIndex) -> Result<(), ()> {
     let dir = read_dir(dir_path).map_err(|err| {
-        eprint!("ERROR: could not open directory {dir_path} for indexing: {err}");
+        eprintln!(
+            "ERROR: could not open directory {dir_path} for indexing: {err}",
+            dir_path = dir_path.display()
+        );
     })?;
-    let mut term_freq_index = TermFreqIndex::new();
 
     'next_file: for file in dir {
-        let file_path = file
-            .map_err(|err| {
-                eprint!(
-                    "ERROR: could not read next file in directory {dir_path} during indexing: {err}"
-                );
-            })?
-            .path();
+        let file = file.map_err(|err| {
+            eprintln!(
+                "ERROR: could not read next file in directory {dir_path} during indexing: {err}",
+                dir_path = dir_path.display()
+            );
+        })?;
+
+        let file_path = file.path();
+        let file_type = file.file_type().map_err(|err| {
+            eprintln!(
+                "ERROR: could not determine type of file {file_path}: {err}",
+                file_path = file_path.display()
+            )
+        })?;
+        if file_type.is_dir() {
+            term_frequency_index_of_folder(&file_path, tf_index)?;
+            continue 'next_file;
+        }
 
         println!("Indexing {:?}...", &file_path);
 
@@ -164,10 +177,10 @@ fn term_frequency_index_of_folder(dir_path: &str) -> Result<TermFreqIndex, ()> {
             }
         }
 
-        term_freq_index.insert(file_path, term_frequency);
+        tf_index.insert(file_path, term_frequency);
     }
 
-    Ok(term_freq_index)
+    Ok(())
 }
 
 fn usage(program: &str) {
@@ -196,7 +209,8 @@ fn entry() -> Result<(), ()> {
                 usage(&program);
                 println!("ERROR: no directory is provided from {subcommand} subsommand");
             })?;
-            let tf_index = term_frequency_index_of_folder(&dir_path)?;
+            let mut tf_index = TermFreqIndex::new();
+            term_frequency_index_of_folder(Path::new(&dir_path), &mut tf_index)?;
             save_term_frequency_index(&tf_index, "index.json")?;
         }
         "search" => {
