@@ -107,21 +107,6 @@ fn parse_entire_xml_file(file_path: &Path) -> Result<String, ()> {
 type TermFreq = HashMap<String, usize>;
 type TermFreqIndex = HashMap<PathBuf, TermFreq>;
 
-fn check_index(index_path: &str) -> Result<(), ()> {
-    println!("Reading {index_path} index file...");
-
-    let index_file = File::open(index_path)
-        .map_err(|err| eprintln!("ERROR: could not open index file {index_path}: {err}"))?;
-    let tf_index: TermFreqIndex = serde_json::from_reader(index_file)
-        .map_err(|err| eprintln!("ERROR: could not parse index file {index_path}: {err}"))?;
-    println!(
-        "{index_path} contains {count} files",
-        count = tf_index.len()
-    );
-
-    Ok(())
-}
-
 fn save_term_frequency_index(tf_index: &TermFreqIndex, index_path: &str) -> Result<(), ()> {
     println!("Saving {index_path}...");
 
@@ -211,9 +196,7 @@ fn usage(program: &str) {
     eprintln!(
         "    index <folder>                      index the <folder> and save the index to index.json file"
     );
-    eprintln!(
-        "    search <index-file>                 check how many documents are indexed in the file (searching is not implemented yet)"
-    );
+    eprintln!("    search <index-file> <query>         search <query> within the <index-file>");
     eprintln!("    serve <index-file> [address]        start local HTTP server with Web Interface");
 }
 
@@ -235,6 +218,20 @@ fn serve_404(request: Request) -> Result<(), ()> {
         .map_err(|err| eprintln!("ERROR: could not serve a request: {err}"))
 }
 
+fn search_query<'a>(tf_index: &'a TermFreqIndex, query: &'a [char]) -> Vec<(&'a Path, f32)> {
+    let mut result = Vec::<(&Path, f32)>::new();
+    for (path, tf_table) in tf_index {
+        let mut rank = 0f32;
+        for token in Lexer::new(&query) {
+            rank += tf(&token, &tf_table) * idf(&token, &tf_index);
+        }
+        result.push((path, rank));
+    }
+    result.sort_by(|(_, rank1), (_, rank2)| rank1.partial_cmp(rank2).unwrap());
+    result.reverse();
+    result
+}
+
 fn serve_api_search(tf_index: &TermFreqIndex, mut request: Request) -> Result<(), ()> {
     let mut buf = Vec::new();
     request.as_reader().read_to_end(&mut buf).map_err(|err| {
@@ -247,16 +244,7 @@ fn serve_api_search(tf_index: &TermFreqIndex, mut request: Request) -> Result<()
         .chars()
         .collect::<Vec<_>>();
 
-    let mut result = Vec::<(&Path, f32)>::new();
-    for (path, tf_table) in tf_index {
-        let mut rank = 0f32;
-        for token in Lexer::new(&body) {
-            rank += tf(&token, &tf_table) * idf(&token, &tf_index);
-        }
-        result.push((path, rank));
-    }
-    result.sort_by(|(_, rank1), (_, rank2)| rank1.partial_cmp(rank2).unwrap());
-    result.reverse();
+    let result = search_query(tf_index, &body);
 
     let json = serde_json::to_string(&result.iter().take(20).collect::<Vec<_>>())
         .map_err(|err| eprintln!("ERROR: could not convert search results to JSON: {err}"))?;
@@ -315,7 +303,26 @@ fn entry() -> Result<(), ()> {
                 usage(&program);
                 println!("ERROR: no path to index is provided for {subcommand} subcommand");
             })?;
-            check_index(&index_path)?;
+            let prompt = args
+                .next()
+                .ok_or_else(|| {
+                    usage(&program);
+                    eprintln!("ERROR: no search query is provided {subcommand} subcommand");
+                })?
+                .chars()
+                .collect::<Vec<_>>();
+
+            let index_file = File::open(&index_path).map_err(|err| {
+                eprintln!("ERROR: could not open index file {index_path}: {err}");
+            })?;
+
+            let tf_index: TermFreqIndex = serde_json::from_reader(index_file).map_err(|err| {
+                eprintln!("ERROR: could not parse index file {index_path}: {err}");
+            })?;
+
+            for (path, rank) in search_query(&tf_index, &prompt).iter().take(20) {
+                println!("{path} {rank}", path = path.display());
+            }
         }
         "serve" => {
             let index_path = args.next().ok_or_else(|| {
