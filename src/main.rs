@@ -1,6 +1,7 @@
 use std::{
     env,
     fs::{File, read_dir},
+    io::{BufReader, BufWriter},
     path::Path,
     process::ExitCode,
 };
@@ -20,7 +21,7 @@ fn parse_entire_xml_file(file_path: &Path) -> Result<String, ()> {
             file_path = file_path.display()
         )
     })?;
-    let event_reader = EventReader::new(file);
+    let event_reader = EventReader::new(BufReader::new(file));
     let mut content = String::new();
 
     for event in event_reader.into_iter() {
@@ -48,7 +49,7 @@ fn save_term_frequency_index(tf_index: &TermFreqIndex, index_path: &str) -> Resu
         eprintln!("ERROR: could not create index file {index_path}: {err}");
     })?;
 
-    serde_json::to_writer(index_file, &tf_index).map_err(|err| {
+    serde_json::to_writer(BufWriter::new(index_file), &tf_index).map_err(|err| {
         eprintln!("ERROR: could not serialize index into file {index_path}: {err}");
     })?;
 
